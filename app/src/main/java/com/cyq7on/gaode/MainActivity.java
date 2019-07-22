@@ -2,6 +2,7 @@ package com.cyq7on.gaode;
 
 import android.Manifest;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -13,6 +14,8 @@ import android.view.animation.Animation;
 import android.view.animation.RotateAnimation;
 import android.widget.CheckBox;
 import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import com.amap.api.location.AMapLocationClient;
 import com.amap.api.location.AMapLocationClientOption;
@@ -24,8 +27,11 @@ import com.amap.api.maps.model.BitmapDescriptor;
 import com.amap.api.maps.model.BitmapDescriptorFactory;
 import com.amap.api.maps.model.CameraPosition;
 import com.amap.api.maps.model.LatLng;
+import com.amap.api.maps.model.LatLngBounds;
 import com.amap.api.maps.model.Marker;
 import com.amap.api.maps.model.MarkerOptions;
+import com.amap.api.maps.model.Polyline;
+import com.amap.api.maps.model.PolylineOptions;
 import com.elvishew.xlog.LogLevel;
 import com.elvishew.xlog.XLog;
 
@@ -33,6 +39,13 @@ import org.jokar.permissiondispatcher.annotation.NeedsPermission;
 import org.jokar.permissiondispatcher.annotation.OnNeverAskAgain;
 import org.jokar.permissiondispatcher.annotation.OnPermissionDenied;
 import org.jokar.permissiondispatcher.annotation.RuntimePermissions;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
@@ -53,6 +66,10 @@ public class MainActivity extends AppCompatActivity {
     ImageView ivCompass;
     private float lastBearing = 0;
     private Marker locationMarker;
+    private Map<String,Marker> planeMarkers = new HashMap<>();
+    private Map<String, Polyline> flyPaths = new HashMap<>();
+    private Map<String,Marker> startMarkers = new HashMap<>();
+    private Map<String,MarkerInfo> markerInfoMap = new HashMap<>();
 
 
     @Override
@@ -103,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
         locationClient.startLocation();
     }
 
+    // 使用图片资源添加定位marker
     private void addLocationMarker(double lat, double lon) {
         LatLng latLng = new LatLng(lat, lon);
         if (locationMarker == null) {
@@ -119,7 +137,45 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // 使用图片资源添加起点marker
+    private void addStartMarker(MarkerInfo markerInfo) {
+        LatLng latLng = new LatLng(markerInfo.lat, markerInfo.lon);
+        BitmapDescriptor bitmapDescriptor = BitmapDescriptorFactory.fromResource(R.drawable.start);
+        MarkerOptions markerOptions = new MarkerOptions().setFlat(true)
+                .anchor(0.5f, 0.5f)
+                .infoWindowEnable(false)
+                .position(latLng)
+                .icon(bitmapDescriptor);
+        startMarkers.put(markerInfo.info,aMap.addMarker(markerOptions));
+    }
 
+    // 自定义view添加marker
+    private void addFlightMarker(MarkerInfo markerInfo) {
+        String info = markerInfo.info;
+        Marker marker = planeMarkers.get(info);
+        LatLng latLng = new LatLng(markerInfo.lat, markerInfo.lon);
+        if(marker == null){
+            View v = getLayoutInflater().inflate(R.layout.info_window, null);
+            TextView tvInfo = v.findViewById(R.id.tv_info);
+            tvInfo.setText(info);
+            BitmapDescriptor bitmapDescriptor = BitmapDescriptorFactory.fromView(v);
+            MarkerOptions markerOptions = new MarkerOptions().setFlat(true)
+                    .anchor(0.5f, 0.5f)
+//                    .autoOverturnInfoWindow(true)
+                    .title(info)
+                    .infoWindowEnable(false)
+                    .position(latLng)
+                    .icon(bitmapDescriptor);
+            marker = aMap.addMarker(markerOptions);
+        }else {
+            marker.setPosition(latLng);
+        }
+        marker.setObject(markerInfo);
+        planeMarkers.put(info,marker);
+    }
+
+
+    // 指南针旋转
     private void startIvCompass(float bearing) {
         bearing = 360 - bearing;
         XLog.d("startIvCompass: " + bearing);
@@ -136,6 +192,12 @@ public class MainActivity extends AppCompatActivity {
     protected void requestPermission() {
         aMap = mMapView.getMap();
         aMap.setOnMarkerClickListener(marker -> {
+            Object object = marker.getObject();
+            if (object == null) {
+                return false;
+            }
+            MarkerInfo markerInfo = (MarkerInfo) object;
+            Toast.makeText(this,markerInfo.info,Toast.LENGTH_SHORT).show();
             return true;
         });
         aMap.setOnCameraChangeListener(new AMap.OnCameraChangeListener() {
@@ -151,14 +213,174 @@ public class MainActivity extends AppCompatActivity {
         });
         //一般原生的样式都难以满足，需要自定义
         UiSettings mUiSettings = aMap.getUiSettings();
-        // 设置缩放按钮是否可见，
+        // 设置缩放按钮是否可见
         mUiSettings.setZoomControlsEnabled(false);
-        // 设置定位按钮是否可见
-        mUiSettings.setRotateGesturesEnabled(false);
+        // 设置旋转手势是否可用
+//        mUiSettings.setRotateGesturesEnabled(false);
         // 设置倾斜手势是否可用
-//        mUiSettings.setTiltGesturesEnabled(true);
+//        mUiSettings.setTiltGesturesEnabled(false);
         location();
+        cbPath.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            for (Marker marker : planeMarkers.values()) {
+                marker.setVisible(isChecked);
+            }
+
+            for (Marker marker : startMarkers.values()) {
+                marker.setVisible(isChecked);
+            }
+
+            for (Polyline polyline : flyPaths.values()) {
+                polyline.setVisible(isChecked);
+            }
+            zoomToSpan();
+        });
+
+        //构造数据
+        for (int i = 0; i < 3; i++) {
+            MarkerInfo markerInfo = new MarkerInfo(Constant.lat + Math.abs(Math.random()) * i,
+                    Constant.lon + Math.abs(Math.random()) * i,"p" + i);
+            addStartMarker(markerInfo);
+            addPolyline(markerInfo);
+            markerInfoMap.put(markerInfo.info,markerInfo);
+        }
+        Timer timer = new Timer();
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                if (isFinishing()) {
+                    timer.cancel();
+                }
+                for (int i = 0; i < 3; i++) {
+                    String info = "p" + i;
+                    MarkerInfo lastInfo = markerInfoMap.get(info);
+                    double v = Math.abs(Math.random());
+                    MarkerInfo markerInfo = new MarkerInfo(lastInfo.lat + v,
+                            lastInfo.lon  + v,info);
+                    markerInfoMap.put(markerInfo.info,markerInfo);
+                    addFlightMarker(markerInfo);
+                    addPolyline(markerInfo);
+                    zoomToSpan();
+                }
+            }
+        },5000,5000);
     }
+
+    /**
+     * 缩放移动地图，保证所有自定义marker在可视范围中。
+     */
+    public void zoomToSpan() {
+        List<LatLng> pointList = new ArrayList<>();
+
+        if (cbPath.isChecked()) {
+            for (Polyline polyline : flyPaths.values()) {
+                pointList.addAll(polyline.getPoints());
+            }
+        }
+
+        LatLng centerPoint = null;
+
+        /*if (locationMarker != null) {
+            centerPoint = locationMarker.getPosition();
+        }*/
+        if (pointList.isEmpty()) {
+            return;
+        }
+
+        LatLngBounds bounds;
+        if (centerPoint == null) {
+            bounds = getLatLngBounds(pointList);
+        }else {
+            bounds = getLatLngBounds(centerPoint, pointList);
+        }
+        aMap.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150));
+    }
+
+    //根据中心点和自定义内容获取缩放bounds
+    private LatLngBounds getLatLngBounds(LatLng centerPoint, List<LatLng> pointList) {
+        LatLngBounds.Builder b = LatLngBounds.builder();
+        if (centerPoint != null){
+            for (int i = 0; i < pointList.size(); i++) {
+                LatLng p = pointList.get(i);
+                LatLng p1 = new LatLng((centerPoint.latitude * 2) - p.latitude, (centerPoint.longitude * 2) - p.longitude);
+                b.include(p);
+                b.include(p1);
+            }
+        }
+        return b.build();
+    }
+
+    // 添加轨迹
+    private void addPolyline(List<MarkerInfo> markerInfoList) {
+        for (MarkerInfo info : markerInfoList) {
+            if (info.lat == 0 && info.lon == 0) {
+                continue;
+            }
+            LatLng latLng = new LatLng(info.lat, info.lon);
+            String key = info.info;
+            Polyline polyline = flyPaths.get(key);
+            if (polyline == null) {
+                List<LatLng> latLngList = new ArrayList<>(1);
+                latLngList.add(latLng);
+                polyline = addPolyline(latLngList, false, Color.parseColor("#6796F3"), 10);
+                polyline.setVisible(cbPath.isChecked());
+                flyPaths.put(key, polyline);
+            } else {
+                List<LatLng> points = polyline.getPoints();
+                points.add(latLng);
+                polyline.setPoints(points);
+            }
+        }
+    }
+
+    // 添加轨迹
+    private void addPolyline(MarkerInfo info) {
+        if (info.lat == 0 && info.lon == 0) {
+            return;
+        }
+        LatLng latLng = new LatLng(info.lat, info.lon);
+        String key = info.info;
+        Polyline polyline = flyPaths.get(key);
+        if (polyline == null) {
+            polyline = addPolyline(latLng, false, Color.parseColor("#6796F3"), 10);
+            polyline.setVisible(cbPath.isChecked());
+            flyPaths.put(key, polyline);
+        } else {
+            List<LatLng> points = polyline.getPoints();
+            points.add(latLng);
+            polyline.setPoints(points);
+        }
+    }
+
+    // 添加折线
+    private Polyline addPolyline(List<LatLng> latLngList, boolean dotted, int color, int width) {
+        return aMap.addPolyline((new PolylineOptions())
+                .addAll(latLngList)
+                .width(width)
+                .setDottedLine(dotted)
+                .color(color));
+    }
+
+    // 添加折线
+    private Polyline addPolyline(LatLng latLng, boolean dotted, int color, int width) {
+        return aMap.addPolyline((new PolylineOptions())
+                .add(latLng)
+                .width(width)
+                .setDottedLine(dotted)
+                .color(color));
+    }
+
+    /**
+     * 根据自定义内容获取缩放bounds
+     */
+    private LatLngBounds getLatLngBounds(List<LatLng> pointList) {
+        LatLngBounds.Builder b = LatLngBounds.builder();
+        for (int i = 0; i < pointList.size(); i++) {
+            LatLng p = pointList.get(i);
+            b.include(p);
+        }
+        return b.build();
+    }
+
 
     @OnPermissionDenied({Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -222,6 +444,7 @@ public class MainActivity extends AppCompatActivity {
                 break;
             case R.id.iv_location:
                 if (locationMarker != null) {
+                    // 直接定位都某点的方法
                     aMap.moveCamera(CameraUpdateFactory.changeLatLng(locationMarker.getPosition()));
                 }
                 break;

@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">GaodeDemo</string>
-    <string name="path">行车轨迹</string>
+    <string name="path">轨迹</string>
 </resources>
