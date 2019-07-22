@@ -18,8 +18,7 @@
         android:layout_width="31dp"
         android:layout_height="31dp"
         android:layout_marginTop="23dp"
-        android:src="@drawable/compass"
-        android:visibility="invisible" />
+        android:src="@drawable/compass" />
 
     <ImageView
         android:id="@+id/iv_location"
@@ -31,8 +30,7 @@
         android:layout_width="31dp"
         android:layout_height="31dp"
         android:layout_marginTop="23dp"
-        android:src="@drawable/location"
-        android:visibility="invisible" />
+        android:src="@drawable/location" />
 
     <CheckBox
         android:id="@+id/cb_path"

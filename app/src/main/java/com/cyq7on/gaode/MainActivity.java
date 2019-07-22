@@ -1,7 +1,14 @@
 package com.cyq7on.gaode;
 
+import android.Manifest;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.support.annotation.NonNull;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
+import android.view.View;
 import android.view.animation.Animation;
 import android.view.animation.RotateAnimation;
 import android.widget.CheckBox;
@@ -22,11 +29,17 @@ import com.amap.api.maps.model.MarkerOptions;
 import com.elvishew.xlog.LogLevel;
 import com.elvishew.xlog.XLog;
 
+import org.jokar.permissiondispatcher.annotation.NeedsPermission;
+import org.jokar.permissiondispatcher.annotation.OnNeverAskAgain;
+import org.jokar.permissiondispatcher.annotation.OnPermissionDenied;
+import org.jokar.permissiondispatcher.annotation.RuntimePermissions;
+
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 import butterknife.Unbinder;
 
+@RuntimePermissions
 public class MainActivity extends AppCompatActivity {
 
     @BindView(R.id.mapView)
@@ -50,30 +63,7 @@ public class MainActivity extends AppCompatActivity {
         XLog.init(BuildConfig.DEBUG ? LogLevel.ALL : LogLevel.NONE);
         mMapView = findViewById(R.id.mapView);
         mMapView.onCreate(savedInstanceState);
-        aMap = mMapView.getMap();
-        aMap.setOnMarkerClickListener(marker -> {
-            return true;
-        });
-        aMap.setOnCameraChangeListener(new AMap.OnCameraChangeListener() {
-            @Override
-            public void onCameraChange(CameraPosition cameraPosition) {
-
-                startIvCompass(cameraPosition.bearing);
-            }
-
-            @Override
-            public void onCameraChangeFinish(CameraPosition cameraPosition) {
-            }
-        });
-        //一般原生的样式都难以满足
-        UiSettings mUiSettings = aMap.getUiSettings();
-        // 设置缩放按钮是否可见，
-        mUiSettings.setZoomControlsEnabled(false);
-        // 设置定位按钮是否可见
-        mUiSettings.setRotateGesturesEnabled(false);
-        // 设置倾斜手势是否可用
-        mUiSettings.setTiltGesturesEnabled(false);
-        location();
+        MainActivityPermissionsDispatcher.requestPermissionWithCheck(this);
     }
 
     private void location() {
@@ -130,7 +120,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-
     private void startIvCompass(float bearing) {
         bearing = 360 - bearing;
         XLog.d("startIvCompass: " + bearing);
@@ -139,6 +128,68 @@ public class MainActivity extends AppCompatActivity {
 
         ivCompass.startAnimation(rotateAnimation);
         lastBearing = bearing;
+    }
+
+    @NeedsPermission({Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+    })
+    protected void requestPermission() {
+        aMap = mMapView.getMap();
+        aMap.setOnMarkerClickListener(marker -> {
+            return true;
+        });
+        aMap.setOnCameraChangeListener(new AMap.OnCameraChangeListener() {
+            @Override
+            public void onCameraChange(CameraPosition cameraPosition) {
+
+                startIvCompass(cameraPosition.bearing);
+            }
+
+            @Override
+            public void onCameraChangeFinish(CameraPosition cameraPosition) {
+            }
+        });
+        //一般原生的样式都难以满足，需要自定义
+        UiSettings mUiSettings = aMap.getUiSettings();
+        // 设置缩放按钮是否可见，
+        mUiSettings.setZoomControlsEnabled(false);
+        // 设置定位按钮是否可见
+        mUiSettings.setRotateGesturesEnabled(false);
+        // 设置倾斜手势是否可用
+//        mUiSettings.setTiltGesturesEnabled(true);
+        location();
+    }
+
+    @OnPermissionDenied({Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+    })
+    void showDenied() {
+        MainActivityPermissionsDispatcher.requestPermissionWithCheck(this);
+    }
+
+    @OnNeverAskAgain({Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+    })
+    void alwaysDenied() {
+        new AlertDialog.Builder(this)
+                .setCancelable(false)
+                .setTitle("提示")
+                .setMessage("需要赋予访问存储和定位的权限，请到“设置”>“应用”>“权限”中配置权限。")
+                .setNegativeButton("取消", (dialog, which) ->
+                        dialog.cancel()).setPositiveButton("确定",
+                (dialog, which) -> {
+                    dialog.cancel();
+                    Intent intent = new Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                }).show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        MainActivityPermissionsDispatcher.onRequestPermissionsResult(this, requestCode, grantResults);
     }
 
     @Override
@@ -162,7 +213,18 @@ public class MainActivity extends AppCompatActivity {
         mMapView.onPause();
     }
 
-    @OnClick(R.id.iv_location)
-    public void onClick() {
+
+    @OnClick({R.id.iv_compass, R.id.iv_location})
+    public void onViewClicked(View view) {
+        switch (view.getId()) {
+            case R.id.iv_compass:
+                aMap.moveCamera(CameraUpdateFactory.changeBearing(0));
+                break;
+            case R.id.iv_location:
+                if (locationMarker != null) {
+                    aMap.moveCamera(CameraUpdateFactory.changeLatLng(locationMarker.getPosition()));
+                }
+                break;
+        }
     }
 }
