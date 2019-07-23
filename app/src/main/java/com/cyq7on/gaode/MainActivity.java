@@ -70,6 +70,8 @@ public class MainActivity extends AppCompatActivity {
     private Map<String, Polyline> flyPaths = new HashMap<>();
     private Map<String,Marker> startMarkers = new HashMap<>();
     private Map<String,MarkerInfo> markerInfoMap = new HashMap<>();
+    // 起点BitmapDescriptor，可复用
+    private BitmapDescriptor startDescriptor;
 
 
     @Override
@@ -140,16 +142,18 @@ public class MainActivity extends AppCompatActivity {
     // 使用图片资源添加起点marker
     private void addStartMarker(MarkerInfo markerInfo) {
         LatLng latLng = new LatLng(markerInfo.lat, markerInfo.lon);
-        BitmapDescriptor bitmapDescriptor = BitmapDescriptorFactory.fromResource(R.drawable.start);
+        if(startDescriptor == null){
+            startDescriptor = BitmapDescriptorFactory.fromResource(R.drawable.start);
+        }
         MarkerOptions markerOptions = new MarkerOptions().setFlat(true)
                 .anchor(0.5f, 0.5f)
                 .infoWindowEnable(false)
                 .position(latLng)
-                .icon(bitmapDescriptor);
+                .icon(startDescriptor);
         startMarkers.put(markerInfo.info,aMap.addMarker(markerOptions));
     }
 
-    // 自定义view添加marker
+    // 使用布局文件添加marker
     private void addFlightMarker(MarkerInfo markerInfo) {
         String info = markerInfo.info;
         Marker marker = planeMarkers.get(info);
@@ -176,10 +180,10 @@ public class MainActivity extends AppCompatActivity {
 
 
     // 指南针旋转
-    private void startIvCompass(float bearing) {
+    private void rotateCompass(float bearing) {
         XLog.d("init: " + bearing);
         bearing = 360 - bearing;
-        XLog.d("startIvCompass: " + bearing);
+        XLog.d("rotateCompass: " + bearing);
         RotateAnimation rotateAnimation = new RotateAnimation(lastBearing, bearing, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f);
         rotateAnimation.setFillAfter(true);
 
@@ -205,7 +209,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onCameraChange(CameraPosition cameraPosition) {
 
-                startIvCompass(cameraPosition.bearing);
+                rotateCompass(cameraPosition.bearing);
             }
 
             @Override
@@ -213,13 +217,13 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         //一般原生的样式都难以满足，需要自定义
-        UiSettings mUiSettings = aMap.getUiSettings();
+        UiSettings uiSettings = aMap.getUiSettings();
         // 设置缩放按钮是否可见
-        mUiSettings.setZoomControlsEnabled(false);
+        uiSettings.setZoomControlsEnabled(false);
         // 设置旋转手势是否可用
-//        mUiSettings.setRotateGesturesEnabled(false);
+//        uiSettings.setRotateGesturesEnabled(false);
         // 设置倾斜手势是否可用
-//        mUiSettings.setTiltGesturesEnabled(false);
+//        uiSettings.setTiltGesturesEnabled(false);
         location();
         cbPath.setOnCheckedChangeListener((buttonView, isChecked) -> {
             for (Marker marker : planeMarkers.values()) {
@@ -266,9 +270,7 @@ public class MainActivity extends AppCompatActivity {
         },5000,5000);
     }
 
-    /**
-     * 缩放移动地图，保证所有自定义marker在可视范围中。
-     */
+    //缩放移动地图，保证所有自定义marker在可视范围中。
     public void zoomToSpan(LatLng centerPoint) {
         List<LatLng> pointList = new ArrayList<>();
 
@@ -306,6 +308,16 @@ public class MainActivity extends AppCompatActivity {
                 b.include(p);
                 b.include(p1);
             }
+        }
+        return b.build();
+    }
+
+    //根据自定义内容获取缩放bounds
+    private LatLngBounds getLatLngBounds(List<LatLng> pointList) {
+        LatLngBounds.Builder b = LatLngBounds.builder();
+        for (int i = 0; i < pointList.size(); i++) {
+            LatLng p = pointList.get(i);
+            b.include(p);
         }
         return b.build();
     }
@@ -361,7 +373,15 @@ public class MainActivity extends AppCompatActivity {
                 .color(color));
     }
 
-    // 添加折线
+
+    /**
+     * 添加折线
+     * @param latLng 经纬度
+     * @param dotted 是否虚线
+     * @param color 颜色
+     * @param width 宽度
+     * @return 折线
+     */
     private Polyline addPolyline(LatLng latLng, boolean dotted, int color, int width) {
         return aMap.addPolyline((new PolylineOptions())
                 .add(latLng)
@@ -370,17 +390,6 @@ public class MainActivity extends AppCompatActivity {
                 .color(color));
     }
 
-    /**
-     * 根据自定义内容获取缩放bounds
-     */
-    private LatLngBounds getLatLngBounds(List<LatLng> pointList) {
-        LatLngBounds.Builder b = LatLngBounds.builder();
-        for (int i = 0; i < pointList.size(); i++) {
-            LatLng p = pointList.get(i);
-            b.include(p);
-        }
-        return b.build();
-    }
 
 
     @OnPermissionDenied({Manifest.permission.WRITE_EXTERNAL_STORAGE,
