@@ -177,6 +177,7 @@ public class MainActivity extends AppCompatActivity {
 
     // 指南针旋转
     private void startIvCompass(float bearing) {
+        XLog.d("init: " + bearing);
         bearing = 360 - bearing;
         XLog.d("startIvCompass: " + bearing);
         RotateAnimation rotateAnimation = new RotateAnimation(lastBearing, bearing, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f);
@@ -232,7 +233,7 @@ public class MainActivity extends AppCompatActivity {
             for (Polyline polyline : flyPaths.values()) {
                 polyline.setVisible(isChecked);
             }
-            zoomToSpan();
+            zoomToSpan(null);
         });
 
         //构造数据
@@ -249,6 +250,7 @@ public class MainActivity extends AppCompatActivity {
             public void run() {
                 if (isFinishing()) {
                     timer.cancel();
+                    return;
                 }
                 for (int i = 0; i < 3; i++) {
                     String info = "p" + i;
@@ -259,7 +261,6 @@ public class MainActivity extends AppCompatActivity {
                     markerInfoMap.put(markerInfo.info,markerInfo);
                     addFlightMarker(markerInfo);
                     addPolyline(markerInfo);
-                    zoomToSpan();
                 }
             }
         },5000,5000);
@@ -268,7 +269,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 缩放移动地图，保证所有自定义marker在可视范围中。
      */
-    public void zoomToSpan() {
+    public void zoomToSpan(LatLng centerPoint) {
         List<LatLng> pointList = new ArrayList<>();
 
         if (cbPath.isChecked()) {
@@ -277,13 +278,13 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        LatLng centerPoint = null;
 
-        /*if (locationMarker != null) {
-            centerPoint = locationMarker.getPosition();
-        }*/
         if (pointList.isEmpty()) {
-            return;
+            if(centerPoint == null){
+                return;
+            }else {
+                aMap.moveCamera(CameraUpdateFactory.changeLatLng(centerPoint));
+            }
         }
 
         LatLngBounds bounds;
@@ -444,7 +445,6 @@ public class MainActivity extends AppCompatActivity {
                 break;
             case R.id.iv_location:
                 if (locationMarker != null) {
-                    // 直接定位都某点的方法
                     aMap.moveCamera(CameraUpdateFactory.changeLatLng(locationMarker.getPosition()));
                 }
                 break;
